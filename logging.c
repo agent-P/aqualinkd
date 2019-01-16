@@ -20,7 +20,8 @@ int log_level;
 
 void set_logging_parameters(char* running_directory, int level)
 {
-	strcpy(log_filename, running_directory);
+	// strcpy(log_filename, running_directory);
+	strcpy(log_filename, "/var");
 	strcat(log_filename, "/log/");
 	strcat(log_filename, LOG_FILE);
 

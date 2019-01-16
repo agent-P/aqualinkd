@@ -11,6 +11,7 @@ extern struct AQUALINK_DATA aqualink_data;
 extern struct CONFIG_PARAMETERS config_parameters;
 extern struct FUNCTION_LABELS function_labels;
 extern int PROGRAMMING;
+extern int CANCEL_PROGRAMMING;
 extern const char* DEVICE_STRINGS[];
 extern const unsigned char DEVICE_CODES[];
 extern const char* KEY_CMD_TEXT[];
@@ -30,6 +31,9 @@ extern const char* level_strings[];
 extern const char PROGRAM_NAME[];
 extern unsigned char aqualink_cmd;
 extern const char* PARAM_TEXT[];
+
+extern int air_temp_error_low;
+extern int air_temp_error_high;
 
 #define LABEL_LENGTH 32
 extern char aux_function_labels[][LABEL_LENGTH];

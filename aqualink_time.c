@@ -69,7 +69,7 @@ int check_aqualink_time(char* _date, char* _time)
 
     log_message(DEBUG, "sis", "Aqualink time is off by ",  time_difference, " seconds...");
 
-    if(abs(time_difference) <= 90) {
+    if(abs(time_difference) <= config_parameters.time_error) {
     	// Time difference is less than or equal to 90 seconds (1 1/2 minutes).
     	// Set the return value to TRUE.
     	time_date_correct = TRUE;
@@ -95,6 +95,7 @@ void set_aqualink_time_field(int field, char* field_string)
 
 	// Parse the local time field string.
 	sscanf(field_string, "%d %s", &local_field, local_mod);
+    log_message(DEBUG, "ss", "field string: ", field_string);
 
 	if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[field]) != NULL) {
 		 do {
@@ -115,6 +116,7 @@ void set_aqualink_time_field(int field, char* field_string)
 				}
 			}
 			else {
+                log_message(DEBUG, "sisi", "current value: ", aqualink_field, "  -  set value: ", local_field);
 				if(aqualink_field < local_field) {
 					// Increment the field.
 					send_cmd("KEY_RIGHT");
@@ -145,106 +147,129 @@ void set_aqualink_time_field(int field, char* field_string)
 void* set_aqualink_time(void* arg)
 {
 	log_message(INFO, "s", "Attempting to set aqualink time...");
-	const int YEAR_LENGTH = 5;
-	const int MONTH_LENGTH = 3;
-	const int DAY_LENGTH = 3;
-	const int HOUR_LENGTH = 6;
-	const int MINUTE_LENGTH = 3;
 
-	int set_time_mode = FALSE;
+	if(!PROGRAMMING) {
+		// Set the flag to let the daemon know a program of multiple
+		// commands is being sent to the Aqualink RS8.
+		PROGRAMMING = TRUE;
 
-    time_t now;
-    struct tm *tmptr;
-    char year[YEAR_LENGTH];
-    char month[MONTH_LENGTH];
-    char day[DAY_LENGTH];
-    char hour[HOUR_LENGTH];
-    char minute[MINUTE_LENGTH];
+		const int YEAR_LENGTH = 5;
+		const int MONTH_LENGTH = 3;
+		const int DAY_LENGTH = 3;
+		const int HOUR_LENGTH = 6;
+		const int MINUTE_LENGTH = 3;
 
-	// Detach the thread so that it cleans up as it exits. Memory leak without it.
-	pthread_detach(pthread_self());
+		int set_time_mode = FALSE;
 
-    // Get the current time.
-    time(&now);
-    tmptr = localtime(&now);
+		time_t now;
+		struct tm *tmptr;
+		char year[YEAR_LENGTH];
+		char month[MONTH_LENGTH];
+		char day[DAY_LENGTH];
+		char hour[HOUR_LENGTH];
+		char minute[MINUTE_LENGTH];
 
-    // Convert to time and date strings compatible with the Aqualink
-    // time and date strings.
-    strftime(year, YEAR_LENGTH, "%Y", tmptr);
-    strftime(month, MONTH_LENGTH, "%m", tmptr);
-    strftime(day, DAY_LENGTH, "%d", tmptr);
-    strftime(hour, HOUR_LENGTH, "%I %p", tmptr);
-    strftime(minute, MINUTE_LENGTH, "%M", tmptr);
+		// Detach the thread so that it cleans up as it exits. Memory leak without it.
+		pthread_detach(pthread_self());
 
-    // Set the flag to let the daemon know a program of multiple
-    // commands is being sent to the Aqualink RS8.
-    PROGRAMMING = TRUE;
+		// Get the current time.
+		time(&now);
+		tmptr = localtime(&now);
 
-    // Select the MENU and wait 1 second to give the RS8 time to respond.
-    send_cmd("KEY_MENU");
-    sleep(1);
+		// Convert to time and date strings compatible with the Aqualink
+		// time and date strings.
+		strftime(year, YEAR_LENGTH, "%Y", tmptr);
+		strftime(month, MONTH_LENGTH, "%m", tmptr);
+		strftime(day, DAY_LENGTH, "%d", tmptr);
+		strftime(hour, HOUR_LENGTH, "%I %p", tmptr);
+		strftime(minute, MINUTE_LENGTH, "%M", tmptr);
+        
+        log_message(DEBUG, "ss", "year: ", year);
 
-    // Select the SET TIME mode. Note only 10 attempts to enter the mode
-    // are made.
-    int iterations = 0;
-    while(!set_time_mode && iterations < 10) {
-    	//log_message(DEBUG, aqualink_data.last_message);
-    	if(strstr(aqualink_data.last_message, "SET TIME") != NULL) {
-    		// We found SET TIME mode. Set the flag to break out of the
-    		// loop.
-    		set_time_mode = TRUE;
+		// Select the MENU and wait 1 second to give the RS8 time to respond.
+		send_cmd("KEY_MENU");
+		sleep(1);
 
-    		// Enter SET TIME mode.
-    		send_cmd("KEY_ENTER");
-        	sleep(1);
-    	}
-    	else {
-    		// Next menu item and wait 1 second to give the RS8 time
-    		// to respond.
-    		send_cmd("KEY_RIGHT");
-    		sleep(1);
-    	}
-    	iterations++;
-    }
+		// Select the SET TIME mode. Note only 10 attempts to enter the mode
+		// are made.
+		int iterations = 0;
+		while(!set_time_mode && iterations < 10) {
+			//log_message(DEBUG, aqualink_data.last_message);
+			if(strstr(aqualink_data.last_message, "SET TIME") != NULL) {
+				// We found SET TIME mode. Set the flag to break out of the
+				// loop.
+				set_time_mode = TRUE;
 
-    // If we are in set time mode, attempt to set the time, else the
-    // function just falls through and returns. A warning is logged.
-    if(set_time_mode) {
+				// Enter SET TIME mode.
+				send_cmd("KEY_ENTER");
+				sleep(1);
+			}
+			else {
+				// Next menu item and wait 1 second to give the RS8 time
+				// to respond.
+				send_cmd("KEY_RIGHT");
+				sleep(1);
+			}
+			iterations++;
+            
+            // Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling set_aqualink_time thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                set_time_mode = FALSE;
+                send_cmd("KEY_CANCEL");
+                break;
+            }
+		}
 
-    	while(set_time_mode) {
-    		if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[YEAR]) != NULL) {
-    			set_aqualink_time_field(YEAR, year);
-    		}
-    		else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[MONTH]) != NULL) {
-    			set_aqualink_time_field(MONTH, month);
-    		}
-    		else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[DAY]) != NULL) {
-    			set_aqualink_time_field(DAY, day);
-    		}
-    		else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[HOUR]) != NULL) {
-    			set_aqualink_time_field(HOUR, hour);
-    		}
-    		else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[MINUTE]) != NULL) {
-    			set_aqualink_time_field(MINUTE, minute);
-    		}
-    		else {
-    			set_time_mode = FALSE;
-    		}
-    		sleep(1);
-    	}
-    	log_message(INFO, "ssssssssss", "Aqualink time set to: ",
-    			year, "-",
-    			month, "-",
-    			day, "  ",
-    			hour, ":",
-    			minute
-    	);
-    }
-    else {
-    	log_message(WARNING, "s", "Could not enter SET TIME mode.");
-    }
+		// If we are in set time mode, attempt to set the time, else the
+		// function just falls through and returns. A warning is logged.
+		if(set_time_mode) {
 
-    // Reset the programming state flag.
-    PROGRAMMING = FALSE;
-    return 0;
+			while(set_time_mode) {
+				if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[YEAR]) != NULL) {
+					set_aqualink_time_field(YEAR, year);
+				}
+				else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[MONTH]) != NULL) {
+					set_aqualink_time_field(MONTH, month);
+				}
+				else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[DAY]) != NULL) {
+					set_aqualink_time_field(DAY, day);
+				}
+				else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[HOUR]) != NULL) {
+					set_aqualink_time_field(HOUR, hour);
+				}
+				else if(strstr(aqualink_data.last_message, TIME_FIELD_TEXT[MINUTE]) != NULL) {
+					set_aqualink_time_field(MINUTE, minute);
+				}
+				else {
+					set_time_mode = FALSE;
+				}
+				sleep(1);
+			}
+			log_message(INFO, "ssssssssss", "Aqualink time set to: ",
+					year, "-",
+					month, "-",
+					day, "  ",
+					hour, ":",
+					minute
+			);
+		}
+		else {
+			log_message(WARNING, "s", "Could not enter SET TIME mode.");
+		}
+
+		// Reset the programming state flag.
+		PROGRAMMING = FALSE;
+	}
+	else {
+		// A multiple command program is currently being sent to the aqualink
+		// controller. Just log it, and fall through to the function return.
+		// Time set will be retried by the main program loop that checks that
+		// aqualink time is correct.
+		log_message(INFO, "s", "Aqualink Programming in progress. Could not set time.");
+	}
+
+	return 0;
 }

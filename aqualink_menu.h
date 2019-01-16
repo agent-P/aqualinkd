@@ -10,5 +10,6 @@
 int select_menu_item(char* mode_string);
 int select_sub_menu_item(char* item_string);
 void cancel_menu();
+void wait_for_time_message();
 
 #endif /* AQUALINK_MENU_H_ */

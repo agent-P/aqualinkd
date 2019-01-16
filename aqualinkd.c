@@ -62,6 +62,21 @@ void set_socket_port(char* port)
 	config_parameters.socket_port = atoi(port);
 }
 
+void set_time_error(char* time_error)
+{
+	config_parameters.time_error = atoi(time_error);
+}
+
+void set_freeze_protect_high(char* temp_setting)
+{
+	config_parameters.freeze_protect_high = atoi(temp_setting);
+}
+
+void set_freeze_protect_low(char* temp_setting)
+{
+	config_parameters.freeze_protect_low = atoi(temp_setting);
+}
+
 void set_log_level(char* level)
 {
 	if (strcmp(level, "DEBUG") == 0) {
@@ -238,8 +253,7 @@ void init_parameters (struct CONFIG_PARAMETERS * parms)
 /*
  * parse external parameters file
  *
- */
-void parse_config (struct CONFIG_PARAMETERS * parms)
+ */void parse_config (struct CONFIG_PARAMETERS * parms)
 {
 	char *s, buff[256];
 	FILE *fp = fopen (CONFIG_FILE, "r");
@@ -284,6 +298,15 @@ void parse_config (struct CONFIG_PARAMETERS * parms)
 		}
 		else if (strcmp(name, "device_id") == 0) {
 			set_device_id(value);
+		}
+		else if(strcmp(name, "time_error") == 0) {
+			set_time_error(value);
+		}
+		else if(strcmp(name, "freeze_protect_high") == 0) {
+			set_freeze_protect_high(value);
+		}
+		else if(strcmp(name, "freeze_protect_low") == 0) {
+			set_freeze_protect_low(value);
 		}
 		else if (strcmp(name, LABEL_NOUNS[AUX1_LABEL]) == 0) {
 			strncpy(aux_function_labels[AUX1_LABEL], value, LABEL_LENGTH);
@@ -413,7 +436,7 @@ int send_cmd(const char* cmd)
 			// variable.
 			not_found = FALSE;
 			aqualink_cmd = KEY_CODES[i];
-			log_message(DEBUG, "ss", KEY_CMD_TEXT[i], " command sent");
+			log_message(INFO, "ss", KEY_CMD_TEXT[i], " command sent");
 			break;
 		}
 	}
@@ -577,18 +600,107 @@ void process_long_message(char* message)
 		aqualink_data.battery = LOW;
 	}
 	else if(strstr(message, pool_setting_string) != NULL) {
-		//log_message(DEBUG, "ss", "pool htr long message: ", message+20);
+		log_message(WARNING, "ss", "pool htr long message: ", message+20);
 		aqualink_data.pool_htr_set_point = atoi(message+20);
 	}
 	else if(strstr(message, spa_setting_string) != NULL) {
-		//log_message(DEBUG, "ss", "spa htr long message: ", message+19);
+		log_message(WARNING, "ss", "spa htr long message: ", message+19);
 		aqualink_data.spa_htr_set_point = atoi(message+19);
 	}
 	else if(strstr(message, frz_protect_setting_string) != NULL) {
-		//log_message(DEBUG, "ss", "frz protect long message: ", message+28);
+		log_message(WARNING, "ss", "frz protect long message: ", message+28);
 		aqualink_data.frz_protect_set_point = atoi(message+28);
 	}
 
+}
+
+
+void check_temp_for_freeze_protect_adjust(int temp)
+{
+	const int SIZE = 10;
+	static int index = 0;
+	static int temps[10] = {0};
+	
+	pthread_t set_frz_protect_temp_thread;
+
+	
+	// Add the newest Air temp reading to the array, and increment
+	// the array index.
+	temps[index] = temp;
+	index++;
+	if(index >= SIZE) {
+		// We got to the end of the array. Set the index so that
+		// the next Air temp value starts to overwrite the array.
+		index = 0;
+		log_message(INFO, "s", "Air temperature array initialized with real values...");
+	}
+	
+	// Initialize error values for finding running values of min and
+	// max air temp error values.
+	air_temp_error_low = temps[0];
+	air_temp_error_high = temps[0];
+	
+	// Iterate through the temperature values array, and find the min
+	// and max values.
+	int i;
+	for(i = 0; i < SIZE; i++) {
+		if(temps[i] != 0) {
+			if(temps[i] > air_temp_error_high) {
+				air_temp_error_high = temps[i];
+			}
+			if(temps[i] < air_temp_error_low) {
+				air_temp_error_low = temps[i];
+			}
+		}
+		else {
+			// Found a zero value in the array indicating that the 
+			// array is not fully populated with real air temp values.
+			// Log it and return without checking for freeze protect
+			// adjustment.
+			log_message(WARNING, "si", "Air temperature array not initialized with real values at index: ", index);
+			return;
+		}
+	}
+	
+	// We fell through the loop. So, we have good min/max values for
+	// the air temp. Log it and check to see if we need to adjust the
+	// freeze protection set point.
+	log_message(WARNING, "sisi", "Air temperature min/max: ", air_temp_error_low, " / ", air_temp_error_high);
+	
+	if(aqualink_data.frz_protect_set_point == 36) {
+		char *param_val = "42";
+		if(pthread_create(&set_frz_protect_temp_thread, NULL, &set_frz_protect_temp, (void*)param_val)) {
+			log_to_syslog(LOG_WARNING, "s", "Error creating SET FRZ PROTECT TEMP thread.");
+		}
+	}
+/*	if(aqualink_data.frz_protect_set_point == 42) {
+		char *param_val = "36";
+		if(pthread_create(&set_frz_protect_temp_thread, NULL, &set_frz_protect_temp, (void*)param_val)) {
+			log_to_syslog(LOG_WARNING, "s", "Error creating SET FRZ PROTECT TEMP thread.");
+		}
+	}
+	
+	if(air_temp_error_low <= config_parameters.freeze_protect_low && air_temp_error_high <= config_parameters.freeze_protect_high) {
+		if(aqualink_data.frz_protect_set_point != config_parameters.freeze_protect_high) {
+			// Found the on condition for freeze protection. Adjust freeze
+			// protection to the high set point.
+			char temp_str[5];
+			snprintf(temp_str, sizeof(temp_str), "%d", config_parameters.freeze_protect_high);
+			log_message(WARNING, "ss", "Setting FREEZE PROTECTION to [ON]: ", temp_str);
+			//set_frz_protect_temp(temp_str);
+		}
+	}
+	else if(air_temp_error_low > config_parameters.freeze_protect_low && air_temp_error_high >= config_parameters.freeze_protect_high) {
+		if(aqualink_data.frz_protect_set_point != config_parameters.freeze_protect_low) {
+			// Found the off condition freeze protection. Adjust freeze
+			// protection to the low set point.
+			char temp_str[5];
+			snprintf(temp_str, sizeof(temp_str), "%d", config_parameters.freeze_protect_low);
+			log_message(WARNING, "ss", "Setting FREEZE PROTECTION to [OFF]: ", temp_str);
+			//set_frz_protect_temp(temp_str);
+		}
+	}
+*/	
 }
 
 
@@ -601,6 +713,8 @@ void process_packet(unsigned char* packet, int length)
 	pthread_t set_time_thread;
 	pthread_t get_htr_set_pnts_thread;
 	pthread_t get_frz_protect_set_pnt_thread;
+	pthread_t set_frz_protect_temp_thread;
+
 
 	if(memcmp(packet, last_packet, MAXPKTLEN) == 0) {
 		// Don't process redundant packets. They can occur for two reasons.
@@ -658,7 +772,7 @@ void process_packet(unsigned char* packet, int length)
 		// First, extract the message from the packet.
 		memset(message, 0, MSGLEN+1);
 		strncpy(message, (char*)packet+PKT_DATA+1, MSGLEN);
-		log_message(DEBUG, "s", message);
+		log_message(INFO, "s", message);
 
 		// Copy the message to the Aqualink data structure as the latest message.
 		memset(aqualink_data.last_message, 0, MSGLONGLEN);
@@ -674,6 +788,7 @@ void process_packet(unsigned char* packet, int length)
             // So, get the temperature units here.
             if(strstr(message, "F") != NULL) {
             	aqualink_data.temp_units = FAHRENHEIT;
+            	check_temp_for_freeze_protect_adjust(aqualink_data.air_temp);
             }
             else if(strstr(message, "C") != NULL) {
             	aqualink_data.temp_units = CELSIUS;
@@ -706,7 +821,7 @@ void process_packet(unsigned char* packet, int length)
 			// against system time.
 			if(aqualink_data.date[0] != '\0') {
 				if(!check_aqualink_time(aqualink_data.date, aqualink_data.time)) {
-					log_message(DEBUG, "sssss", "Aqualink time ", aqualink_data.date, " ", aqualink_data.time, " is incorrect");
+					log_message(WARNING, "sssss", "Aqualink time ", aqualink_data.date, " ", aqualink_data.time, " is incorrect");
 
 					if(pthread_create(&set_time_thread, NULL, &set_aqualink_time, (void*)NULL)) {
 						log_to_syslog(LOG_WARNING, "s", "Error creating SET TIME thread.");
@@ -721,6 +836,13 @@ void process_packet(unsigned char* packet, int length)
 		else if(strstr(message, " REV ") != NULL) {
 			// A master firmware revision message.
 			strcpy(aqualink_data.version, message);
+			
+			log_message(WARNING, "s", "Rev message detected. Resynchronizing with master.");
+			
+			// Cancel any running PROGRAMMING threads.
+			if(PROGRAMMING) {
+				CANCEL_PROGRAMMING = TRUE;
+			}
 
 			// This is a good indicator that the daemon has just started
 			// or has just been forced to resynch with the master. It is a
@@ -732,7 +854,10 @@ void process_packet(unsigned char* packet, int length)
 			if(pthread_create(&get_frz_protect_set_pnt_thread, NULL, &get_frz_protect_temp, (void*)NULL)) {
 				log_to_syslog(LOG_WARNING, "s", "Error creating get freeze protection set point thread.");
 			}
-
+//			char *param_val = "36";
+//			if(pthread_create(&set_frz_protect_temp_thread, NULL, &set_frz_protect_temp, (void*)param_val)) {
+//				log_to_syslog(LOG_WARNING, "s", "Error creating SET FRZ PROTECT TEMP thread.");
+//			}
 		}
 	}
 	else if(packet[PKT_CMD] == CMD_MSG && (packet[PKT_DATA] == 1)) {
@@ -746,11 +871,13 @@ void process_packet(unsigned char* packet, int length)
 		memset(message, 0, MSGLEN+1);
 		strncpy(message, (char*)packet+PKT_DATA+1, MSGLEN);
 		strcpy(aqualink_data.last_message, message);
+		log_message(INFO, "s", message);
 	}
 	else if(packet[PKT_CMD] == CMD_MSG_LONG) {
 		// Packet is continuation of a long message.
 		strncpy(message, (char*)packet+PKT_DATA+1, MSGLEN);
 		strcat(aqualink_data.last_message, message);
+		log_message(INFO, "s", message);
 	}
 	else if(packet[PKT_CMD] == CMD_PROBE) {
 		// Packet is a command probe. The master is trying to find
@@ -835,7 +962,7 @@ int main()
 					// is reset to NUL after a command is sent.
 					send_ack(file_descriptor, aqualink_cmd);
 
-					//log_packet(packet_buffer, packet_length);
+					log_packet(packet_buffer, packet_length);
 
 					// Process the packet. This includes deriving general status, and identifying
 					// warnings and errors.

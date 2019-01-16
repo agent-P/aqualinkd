@@ -15,7 +15,7 @@
 #include "globals.h"
 #include "aqualink_menu.h"
 
-static void set_aqualink_temp_field(char* temperature) {
+void set_aqualink_temp_field(char* temperature) {
 	int value;            // the value to set the set point to
 	char description[5];  // description of the field (POOL, SPA, FRZ)
 	int local_val;        // integer value of the current set point
@@ -72,12 +72,14 @@ void* get_pool_spa_htr_temps(void* arg)
 					select_sub_menu_item("TEMP SET");
 
 					// Wait 5 seconds for the messages to be sent from the master device.
-					sleep(5);
+					//sleep(5);
+					
+					wait_for_time_message();
 				}
 				else {
 					// Log the failure and take it back to a known state.
 					log_message(WARNING, "s", "Could not select REVIEW to retrieve heater set points.");
-					cancel_menu();
+					//cancel_menu();
 				}
 
 				// Reset the programming state flag.
@@ -88,6 +90,16 @@ void* get_pool_spa_htr_temps(void* arg)
 				log_message(DEBUG, "s", "Get Pool and Spa Heater Set Points waiting to execute...");
 				sleep(5);
 			}
+			
+			// Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling get_pool_spa_htr_temps thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                done = TRUE;
+                break;
+            }
+
 		}
 
 		thread_running = FALSE;
@@ -123,7 +135,7 @@ void* set_pool_htr_temp(void* arg)
 				int set_temp_mode = select_menu_item("SET TEMP");
 
 				if(set_temp_mode) {
-					// Retrieve the pool and spa heater temperature set points.
+					// Set the pool heater temperature set point.
 					int set_pool_temp_mode = select_sub_menu_item("SET POOL TEMP");
 
 					if(set_pool_temp_mode) {
@@ -133,7 +145,7 @@ void* set_pool_htr_temp(void* arg)
 				else {
 					// Log the failure and take it back to a known state.
 					log_message(WARNING, "s", "Could not select SET TEMP to set heater set points.");
-					cancel_menu();
+					//cancel_menu();
 				}
 
 				// Reset the programming state flag.
@@ -144,6 +156,16 @@ void* set_pool_htr_temp(void* arg)
 				log_message(INFO, "s", "Set Pool Heater Set Point waiting to execute...");
 				sleep(5);
 			}
+			
+			// Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling set_pool_htr_temp thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                done = TRUE;
+                break;
+            }
+
 		}
 
 		thread_running = FALSE;
@@ -179,7 +201,7 @@ void* set_spa_htr_temp(void* arg)
 				int set_temp_mode = select_menu_item("SET TEMP");
 
 				if(set_temp_mode) {
-					// Retrieve the pool and spa heater temperature set points.
+					// Set the spa heater temperature set point.
 					int set_spa_temp_mode = select_sub_menu_item("SET SPA TEMP");
 
 					if(set_spa_temp_mode) {
@@ -189,7 +211,7 @@ void* set_spa_htr_temp(void* arg)
 				else {
 					// Log the failure and take it back to a known state.
 					log_message(WARNING, "s", "Could not select SET TEMP to set heater set points.");
-					cancel_menu();
+					//cancel_menu();
 				}
 
 				// Reset the programming state flag.
@@ -200,6 +222,16 @@ void* set_spa_htr_temp(void* arg)
 				log_message(INFO, "s", "Set Spa Heater Set Point waiting to execute...");
 				sleep(5);
 			}
+
+			// Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling set_spa_htr_temp thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                done = TRUE;
+                break;
+            }
+			
 		}
 
 		thread_running = FALSE;
@@ -240,12 +272,14 @@ void* get_frz_protect_temp(void* arg)
 					select_sub_menu_item("FRZ PROTECT");
 
 					// Wait 5 seconds for the messages to be sent from the master device.
-					sleep(5);
+					//sleep(5);
+					
+					wait_for_time_message();
 				}
 				else {
 					// Log the failure and take it back to a known state.
 					log_message(WARNING, "s", "Could not select REVIEW to retrieve freeze protection set point.");
-					cancel_menu();
+					//cancel_menu();
 				}
 
 				// Reset the programming state flag.
@@ -256,12 +290,22 @@ void* get_frz_protect_temp(void* arg)
 				log_message(DEBUG, "s", "Get Freeze Protect Set Point waiting to execute...");
 				sleep(5);
 			}
+			
+			// Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling get_frz_protect_temp thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                done = TRUE;
+                break;
+            }
+
 		}
 
 		thread_running = FALSE;
 	}
 	else {
-		log_message(WARNING, "s", "Get Pool and Spa Heater Set Points thread instance already running...");
+		log_message(WARNING, "s", "Get Freeze Protect Set Point thread instance already running...");
 	}
 
 	return 0;
@@ -270,14 +314,18 @@ void* get_frz_protect_temp(void* arg)
 
 void* set_frz_protect_temp(void* arg)
 {
-	static int thread_running;
+	static int thread_running = FALSE;
+	
+	log_message(INFO, "s", "Entering set_frz_protect_temp()...");
 
 	// Detach the thread so that it cleans up as it exits. Memory leak without it.
 	pthread_detach(pthread_self());
 
 	if(!thread_running) {
 		thread_running = TRUE;
-
+		
+		log_message(INFO, "s", "set_frz_protect_temp() thread running *********************************...");
+		
 		int done = FALSE;
 		while(!done) {
 			if(!PROGRAMMING) {
@@ -285,13 +333,13 @@ void* set_frz_protect_temp(void* arg)
 				// commands is being sent to the Aqualink RS8.
 				PROGRAMMING = TRUE;
 
-				log_message(INFO, "s", "Setting the freeze protection set point...");
+				log_message(WARNING, "ss", "Setting the freeze protection set point to: ", arg);
 
 				// Select SET TEMP mode.
 				int set_temp_mode = select_menu_item("FRZ PROTECT");
 
 				if(set_temp_mode) {
-					// Retrieve the pool and spa heater temperature set points.
+					// Set the freeze protection temperature set point.
 					int set_frz_protect_temp_mode = select_sub_menu_item("TEMP SETTING");
 
 					if(set_frz_protect_temp_mode) {
@@ -300,8 +348,8 @@ void* set_frz_protect_temp(void* arg)
 				}
 				else {
 					// Log the failure and take it back to a known state.
-					log_message(WARNING, "s", "Could not select SET TEMP to set heater set points.");
-					cancel_menu();
+					log_message(WARNING, "s", "Could not select FRZ PROTECT to set freeze protection set point.");
+					//cancel_menu();
 				}
 
 				// Reset the programming state flag.
@@ -312,6 +360,16 @@ void* set_frz_protect_temp(void* arg)
 				log_message(INFO, "s", "Set Freeze Protection Set Point waiting to execute...");
 				sleep(5);
 			}
+
+			// Check to see if the PROGRAMMING activity should be cancelled.
+            // If so, clean up and break out of the loop.
+            if(CANCEL_PROGRAMMING) {
+                log_message(WARNING, "s", "Cancelling set_frz_protect_temp thread.");
+                CANCEL_PROGRAMMING = FALSE;
+                done = TRUE;
+                break;
+            }
+
 		}
 
 		thread_running = FALSE;

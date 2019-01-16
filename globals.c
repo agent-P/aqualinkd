@@ -10,6 +10,8 @@ struct AQUALINK_DATA aqualink_data;
 struct CONFIG_PARAMETERS config_parameters;
 
 int PROGRAMMING = FALSE;
+int CANCEL_PROGRAMMING = FALSE;
+
 const char* DEVICE_STRINGS[] = {
 		"08",
 		"09",
@@ -177,3 +179,6 @@ const char* PARAM_TEXT[] = {
 		"SPA_HTR",
 		"FRZ_PROTECT"
 };
+
+int air_temp_error_low = -999;
+int air_temp_error_high = 999;

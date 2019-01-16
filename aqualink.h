@@ -224,7 +224,14 @@ struct CONFIG_PARAMETERS
   int socket_port;
   char running_directory[MAXLEN];
   unsigned char device_id;
+  int time_error;
+  int freeze_protect_high;
+  int freeze_protect_low;
 };
+
+
+int send_cmd(const char* cmd);
+char* trim (char * s);
 
 
 #endif /* AQUALINK_H_ */
